@@ -1,0 +1,17 @@
+
+Tue Apr 20 11:28:52 CEST 2021
+Log: fastq-dump Tue Apr 20 11:28:52 CEST 2021
+
+Tue Apr 20 12:02:11 CEST 2021
+Log: fastq-dump Tue Apr 20 12:02:11 CEST 2021
+
+Tue Apr 20 12:03:34 CEST 2021
+Log: fastq-dump Tue Apr 20 12:03:34 CEST 2021
+Log: fastq-dump download complete: Tue Apr 20 12:03:34 CEST 2021
+
+Tue Apr 20 14:47:30 CEST 2021
+Fastq-Dump Tue Apr 20 14:47:30 CEST 2021
+Log: fastq-dump download complete: Tue Apr 20 14:47:30 CEST 2021
+
+Tue Apr 20 14:48:44 CEST 2021
+Fastq-Dump Tue Apr 20 14:48:44 CEST 2021
