@@ -1,3 +1,4 @@
+
 #!/bin/bash
 
 ### RNA Seq Preprocessing Script for Paired-End Data ###
@@ -114,7 +115,41 @@ fi
 echo
 echo " 2 - Data PreProcessing: Initial Quality Metrics "
 
-# Fastqc on select samples
+#Setting up list of data files:
+#--------------------
+
+# TO DO: Clean this up - want to create list of files here, will later be used with STAR but need to do differently for both paired and single end data
+if $pairedEnd ;then
+	files1=$inoutdir/*1.fastq; set -- $files1; files2=$inoutdir/*2.fastq; set -- $files2
+else
+	files=$inoutdir/*.fastq; set -- $files
+fi
+
+# FastQC for Paired and Single End Data
+#--------------------
+
+if $fastqcAnalysis ;then
+	if [ ! -d $inoutdir/fastqcAnalysis ]; then mkdir $inoutdir/fastqcAnalysis; fi
+	if $pairedEnd ;then
+		echo "Running fastqc on paired end data: "$(date) >> stdout.txt
+		if [ -z "$files2" ]; then
+			echo "No _2.fastq files detected running fastqc on only one file - double check input if unexpected" >> stdout.txt
+			fastqcFile=(${files1[0]})
+			fastqc -o $inoutdir/fastqcAnalysis/ $fastqcFile >> stdout.txt
+		else
+			fastqcFile1=(${files1[0]}); fastqcFile2=(${files2[0]})
+			fastqc -o $inoutdir/fastqcAnalysis/ $fastqcFile1 $fastqcFile2 >> stdout.txt
+		fi
+	else
+		echo "Fastqc only available for paired end data right now."
+	fi
+echo "\nFastQC Analysis Complete - please check output, update config file and rerun with appropriate trim"
+exit
+fi
+
+
+# Adapter Trimming Check
+if [ -z "$trim" ] && [[ $fastqcAnalysis == "false" ]]; then echo "Please add a trim quantity to the config file!"; exit; fi
 
 #--------------------
 # Alignment
@@ -125,23 +160,19 @@ echo " 3 - Alignment "
 
 # TO DO: Remove gzip from .fa/.gtf file downloads, reference index wont work otherwise even with --readFilesCommand gunzip -c
 
-# Generating a Genome Reference Index:
+# Generating a Genome Reference Index: So have precreated and then add option to path
+#--------------------
 if $refGenomeIndex ; then
-	if [ ! -d $inoutdir/hg38 ]; then
-		mkdir $inoutdir/hg38
-                echo "Generated Directory "$inoutdir"/hg38"
-	else
-		echo $inoutdir"/hg38 exists, continuing."
-	fi
+	if [ ! -d $inoutdir/hg38 ]; then mkdir $inoutdir/hg38; echo "Generated Directory "$inoutdir"/hg38"; fi
 
 	echo ; echo "Generating Genome Index"; echo "Generating Reference Genome Index "$(date) >> stdout.txt
 	# Downloading Reference Genome
 	if [ ! -f $inoutdir/hg38/hg38.fa.gz ]; then
-		wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz -P $inoutdir/hg38/ >> stdout.txt
+		wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz -P $inoutdir/hg38/; gzip -d hg38.fa.gz >> stdout.txt 
 	fi
 	# Downloading Annotation File
 	if [ ! -f $inoutdir/hg38/hg38.ensGene.gtf.gz ]; then
-		wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/genes/hg38.ensGene.gtf.gz -P $inoutdir/hg38/ >> stdout.txt
+		wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/genes/hg38.ensGene.gtf.gz -P $inoutdir/hg38/; gzip -d hg38.ensGene.gtf.gz >> stdout.txt
 	fi
 	# Creating reference index - note that the number of threads can be adjusted accordingly here
 	if [ -f $inoutdir/hg38/hg38.fa ] && [ -f $inoutdir/hg38/hg38.ensGene.gtf ]; then
@@ -155,24 +186,38 @@ if $refGenomeIndex ; then
 fi
 
 # Alignment with STAR:
-echo "Generating list of files for mapping of multiple in one run"$(date) >> stdout.txt
+#--------------------
+if $pairedEnd ;then
 
-files1=$inoutdir/*1.fastq; set -- $files1
-files2=$inoutdir/*2.fastq; set -- $files2
-starFiles1=""
-starFiles2=""
-for i in $files1; do starFiles1="${starFiles1},$i"; done
-for i in $files2; do starFiles2="${starFiles2},$i"; done
-starFiles1="${starFiles1:1}"; starFiles2="${starFiles2:1}"
+	# Creating File List
+	echo "Generating list of files for mapping of multiple in one run"$(date) >> stdout.txt
 
-echo "Read 1 list: "$starFiles1"\nRead 2 list: "$starFiles2 >> stdout.txt
+	starFiles1=""; starFiles2=""
+	for i in $files1; do starFiles1="${starFiles1},$i"; done; for i in $files2; do starFiles2="${starFiles2},$i"; done
+	starFiles1="${starFiles1:1}"; starFiles2="${starFiles2:1}"
 
-if [ ! -d $inoutdir/alignments }; then mkdir $inoutdir/alignments; fi
+	echo "Read 1 list: "$starFiles1"\nRead 2 list: "$starFiles2 >> stdout.txt
 
-STAR --runThreadN 4 --readFilesCommand gunzip -c --genomeDir $refIndex --readFilesIn $starFiles1 $starFiles2 --outFilterMultimapNmax 1 \
-	--outSAMtype BAM SortedByCoordinate --quantMode GeneCounts --outFileNamePrefix $inoutdir/alignments 2>> stderr.txt
+	# Making Directory for Alignment results
+	if [ ! -d $inoutdir/alignments }; then mkdir $inoutdir/alignments; fi
 
-# Note the fastq files are not in gzip format post accession step - need to zip them prior to this alignment step
+	# Alignment
+	STAR --runThreadN 4 --genomeDir $refIndex --readFilesIn $starFiles1 $starFiles2 --outFilterMultimapNmax 1 \
+		--outSAMtype BAM SortedByCoordinate --quantMode GeneCounts --sjdbGTFfile $refIndex/hg38.ensGene.gtf \
+		--clip5pNbases 13 --outFileNamePrefix $inoutdir/alignments 2>> stderr.txt
+
+	echo "Alignment Complete"; echo "Completed Paired Alignment"$(date) >> stdout.txt
+fi
+# Note the fastq files are not in gzip format post accession step - need to zip them prior to this alignment step (use --readFilesCommand gunzip -c )
 # Not finding the enome file /home/knorwood/data/GSE157103/GSE157103/hg38//genomeParameters.txt
 # TO DO: Need a --outSAMattrRGline for corresponding read groups? (in the above STAR alignment command)
 # TO DO: Dont think its necessary to add --clip5pNbases but need to double check, will need to make this so that it could be user input?
+
+#--------------------
+# Normalization
+#--------------------
+
+echo
+echo " 4 - Inter and Intra Normalization "
+
+# Pull in R script here
