@@ -1,4 +1,3 @@
-
 #!/bin/bash
 
 ### RNA Seq Preprocessing Script for Paired-End Data ###
@@ -68,6 +67,10 @@ else
 			shift
 			;;
 
+		-t|--t)
+			trim=$2
+			shift
+			;;
 		-i|--i)
 			refIndex=$2
 			shift
@@ -147,7 +150,6 @@ echo "\nFastQC Analysis Complete - please check output, update config file and r
 exit
 fi
 
-
 # Adapter Trimming Check
 if [ -z "$trim" ] && [[ $fastqcAnalysis == "false" ]]; then echo "Please add a trim quantity to the config file!"; exit; fi
 
@@ -201,7 +203,7 @@ if $pairedEnd ;then
 	# Making Directory for Alignment results
 	if [ ! -d $inoutdir/alignments }; then mkdir $inoutdir/alignments; fi
 
-	# Alignment
+	# Alignment - Change --clip5pNbases dependent on fastqc
 	STAR --runThreadN 4 --genomeDir $refIndex --readFilesIn $starFiles1 $starFiles2 --outFilterMultimapNmax 1 \
 		--outSAMtype BAM SortedByCoordinate --quantMode GeneCounts --sjdbGTFfile $refIndex/hg38.ensGene.gtf \
 		--clip5pNbases 13 --outFileNamePrefix $inoutdir/alignments 2>> stderr.txt
@@ -209,9 +211,13 @@ if $pairedEnd ;then
 	echo "Alignment Complete"; echo "Completed Paired Alignment"$(date) >> stdout.txt
 fi
 # Note the fastq files are not in gzip format post accession step - need to zip them prior to this alignment step (use --readFilesCommand gunzip -c )
-# Not finding the enome file /home/knorwood/data/GSE157103/GSE157103/hg38//genomeParameters.txt
+# Not finding the genome file /home/knorwood/data/GSE157103/GSE157103/hg38//genomeParameters.txt
 # TO DO: Need a --outSAMattrRGline for corresponding read groups? (in the above STAR alignment command)
-# TO DO: Dont think its necessary to add --clip5pNbases but need to double check, will need to make this so that it could be user input?
+
+# Read Counts
+#--------------------
+
+# TO DO: Read counts
 
 #--------------------
 # Normalization
