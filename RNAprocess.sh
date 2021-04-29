@@ -22,6 +22,7 @@ function usage () {
 	echo '-d : true to download fastq files from SRA accession file, otherwise false'
 	echo '-p : true if data is paired end otherwise set to false'
 	echo '-r : set to true if a reference genome index is required, otherwise false; designed for hg38 human reference genome'
+	echo '-t : trim number for alignment'
 	echo
 }
 
@@ -84,7 +85,7 @@ fi
 
 #Log File:
 echo >> stdout.txt
-echo $(date) >> stdout.txt
+echo "Initializing Pipeline... "$(date) >> stdout.txt
 echo >> stdout.txt
 
 #--------------------
@@ -103,7 +104,7 @@ if $download ; then
 
 	if $pairedEnd ; then
 		for i in $(cut -d "," -f1 $accFileName); do
-			fast1-dump -I --split-files -O $inoutdir "$i" >> stdout.txt
+			fastq-dump -I --split-files -O $inoutdir "$i" >> stdout.txt
 		done
 	#else	#TO DO: Add an else statement for single end data download
 	fi
@@ -169,16 +170,18 @@ if $refGenomeIndex ; then
 
 	echo ; echo "Generating Genome Index"; echo "Generating Reference Genome Index "$(date) >> stdout.txt
 	# Downloading Reference Genome
-	if [ ! -f $inoutdir/hg38/hg38.fa.gz ]; then
-		wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz -P $inoutdir/hg38/; gzip -d hg38.fa.gz >> stdout.txt 
+	if [ ! -f $inoutdir/hg38/hg38.fa ]; then
+		wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz -P $inoutdir/hg38/
+	       	gzip -d hg38.fa.gz >> stdout.txt 
 	fi
 	# Downloading Annotation File
-	if [ ! -f $inoutdir/hg38/hg38.ensGene.gtf.gz ]; then
-		wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/genes/hg38.ensGene.gtf.gz -P $inoutdir/hg38/; gzip -d hg38.ensGene.gtf.gz >> stdout.txt
+	if [ ! -f $inoutdir/hg38/hg38.ensGene.gtf ]; then
+		wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/genes/hg38.ensGene.gtf.gz -P $inoutdir/hg38/
+	       	gzip -d hg38.ensGene.gtf.gz >> stdout.txt
 	fi
 	# Creating reference index - note that the number of threads can be adjusted accordingly here
 	if [ -f $inoutdir/hg38/hg38.fa ] && [ -f $inoutdir/hg38/hg38.ensGene.gtf ]; then
-		STAR --runMode genomeGenerate --runThreadN 4 --genomeDir $inoutdir/hg38/ --genomeFastaFiles $inoutdir/hg38/hg38.fa --sjdbGTFfile $inoutdir/hg38/hg38.ensGene.gtf >> stdout.txt # 2>> stderr.txt
+		STAR --runMode genomeGenerate --runThreadN 4 --genomeDir $inoutdir/hg38/ --genomeFastaFiles $inoutdir/hg38/hg38.fa --sjdbGTFfile $inoutdir/hg38/hg38.ensGene.gtf #>> stdout.txt # 1>> stderr.txt
 	fi
 
 	refIndex=$inoutdir/hg38
@@ -192,32 +195,37 @@ fi
 if $pairedEnd ;then
 
 	# Creating File List
-	echo "Generating list of files for mapping of multiple in one run"$(date) >> stdout.txt
+	echo "Generating list of files for mapping of multiple in one run "$(date) >> stdout.txt
 
+	#TO DO: add a naming system before here as it should work with both paired/single end data, make sure it aligns with proteomic data
+	
 	starFiles1=""; starFiles2=""
-	for i in $files1; do starFiles1="${starFiles1},$i"; done; for i in $files2; do starFiles2="${starFiles2},$i"; done
+	for i in $files1; do starFiles1="${starFiles1}\n$i"; done; for i in $files2; do starFiles2="${starFiles2}\n$i"; done
 	starFiles1="${starFiles1:1}"; starFiles2="${starFiles2:1}"
+	starFile=$(paste starFiles1 starFiles2)
 
 	echo "Read 1 list: "$starFiles1"\nRead 2 list: "$starFiles2 >> stdout.txt
 
 	# Making Directory for Alignment results
-	if [ ! -d $inoutdir/alignments }; then mkdir $inoutdir/alignments; fi
+	if [ ! -d $inoutdir/alignments ]; then mkdir $inoutdir/alignments; fi 
 
-	# Alignment - Change --clip5pNbases dependent on fastqc
-	STAR --runThreadN 4 --genomeDir $refIndex --readFilesIn $starFiles1 $starFiles2 --outFilterMultimapNmax 1 \
-		--outSAMtype BAM SortedByCoordinate --quantMode GeneCounts --sjdbGTFfile $refIndex/hg38.ensGene.gtf \
-		--clip5pNbases 13 --outFileNamePrefix $inoutdir/alignments 2>> stderr.txt
-
-	echo "Alignment Complete"; echo "Completed Paired Alignment"$(date) >> stdout.txt
+	# Alignment
+	for line in starFile; do
+		fileName=$(echo $line | cut -d'_' -f 1)
+		STAR --runThreadN 4 --genomeDir $refIndex --readFilesIn $line --outFilterMultimapNmax 1 \
+			--outSAMtype BAM SortedByCoordinate --quantMode GeneCounts --sjdbGTFfile $refIndex/hg38.ensGene.gtf \
+			--clip5pNbases 13 --outFileNamePrefix $inoutdir/alignments/$fileName --genomeLoad LoadAndRemove 2>> stderr.txt
+		echo "$fileName alignement complete"
+	done
+	echo "Alignment Complete"; echo "Completed Paired Alignment "$(date) >> stdout.txt
 fi
 # Note the fastq files are not in gzip format post accession step - need to zip them prior to this alignment step (use --readFilesCommand gunzip -c )
-# Not finding the genome file /home/knorwood/data/GSE157103/GSE157103/hg38//genomeParameters.txt
 # TO DO: Need a --outSAMattrRGline for corresponding read groups? (in the above STAR alignment command)
 
 # Read Counts
 #--------------------
 
-# TO DO: Read counts
+# TO DO: Add read counts, print to stdout.txt as well. 
 
 #--------------------
 # Normalization
