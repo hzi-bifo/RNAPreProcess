@@ -199,10 +199,10 @@ if $pairedEnd ;then
 
 	#TO DO: add a naming system before here as it should work with both paired/single end data, make sure it aligns with proteomic data
 	
-	starFiles1=""; starFiles2=""
-	for i in $files1; do starFiles1="${starFiles1}\n$i"; done; for i in $files2; do starFiles2="${starFiles2}\n$i"; done
-	starFiles1="${starFiles1:1}"; starFiles2="${starFiles2:1}"
-	starFile=$(paste starFiles1 starFiles2)
+	#starFiles1=""; starFiles2=""
+	#for i in $files1; do starFiles1="${starFiles1}"\n"$i"; done; for i in $files2; do starFiles2="${starFiles2}"\n"$i"; done
+	#starFiles1="${starFiles1:1}"; starFiles2="${starFiles2:1}"
+	starFile=$(paste $files1 $files2)
 
 	echo "Read 1 list: "$starFiles1"\nRead 2 list: "$starFiles2 >> stdout.txt
 
