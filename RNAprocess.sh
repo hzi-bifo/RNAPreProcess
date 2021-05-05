@@ -161,8 +161,6 @@ if [ -z "$trim" ] && [[ $fastqcAnalysis == "false" ]]; then echo "Please add a t
 echo
 echo " 3 - Alignment "
 
-# TO DO: Remove gzip from .fa/.gtf file downloads, reference index wont work otherwise even with --readFilesCommand gunzip -c
-
 # Generating a Genome Reference Index: So have precreated and then add option to path
 #--------------------
 if $refGenomeIndex ; then
@@ -192,30 +190,30 @@ fi
 
 # Alignment with STAR:
 #--------------------
+
+#TO DO: add a naming system before here as it should work with both paired/single end data, make sure it aligns with proteomic data
+# TO DO: 30.04.2021 - need to merge file1 with file2 in tab deliminated manner for alignment
+
 if $pairedEnd ;then
 
 	# Creating File List
 	echo "Generating list of files for mapping of multiple in one run "$(date) >> stdout.txt
 
-	#TO DO: add a naming system before here as it should work with both paired/single end data, make sure it aligns with proteomic data
-	
-	#starFiles1=""; starFiles2=""
-	#for i in $files1; do starFiles1="${starFiles1}"\n"$i"; done; for i in $files2; do starFiles2="${starFiles2}"\n"$i"; done
-	#starFiles1="${starFiles1:1}"; starFiles2="${starFiles2:1}"
-	starFile=$(paste $files1 $files2)
-
-	echo "Read 1 list: "$starFiles1"\nRead 2 list: "$starFiles2 >> stdout.txt
-
-	# Making Directory for Alignment results
-	if [ ! -d $inoutdir/alignments ]; then mkdir $inoutdir/alignments; fi 
+	> $inoutdir/files1.txt; > $inoutdir/files2.txt
+	for i in $files1; do echo "$i" >> $inoutdir/files1.txt; done; for i in $files2; do echo "$i" >> $inoutdir/files2.txt; done
+	paste -d " " $inoutdir/files1.txt $inoutdir/files2.txt > $inoutdir/starfile.txt
+	echo "Complete" >> stdout.txt
 
 	# Alignment
-	for line in starFile; do
-		fileName=$(echo $line | cut -d'_' -f 1)
+	echo "STAR Alignment" >> stdout.txt
+	echo $refIndex
+	cat $inoutdir/starfile.txt | while read line; do
+		base=$(echo "${line%% *}"); starname=$(basename -s .fastq $base | cut -f1 -d"_")
+		echo $starname; echo $starname >> stdout.txt
 		STAR --runThreadN 4 --genomeDir $refIndex --readFilesIn $line --outFilterMultimapNmax 1 \
 			--outSAMtype BAM SortedByCoordinate --quantMode GeneCounts --sjdbGTFfile $refIndex/hg38.ensGene.gtf \
-			--clip5pNbases 13 --outFileNamePrefix $inoutdir/alignments/$fileName --genomeLoad LoadAndRemove 2>> stderr.txt
-		echo "$fileName alignement complete"
+			--clip5pNbases 13 --outFileNamePrefix $inoutdir/alignments/$starname #--genomeLoad LoadAndRemove 2>> stderr.txt
+		echo -e "$starname\talignment complete"; echo -e "$line\talignment complete"$(date) >> stdout.txt
 	done
 	echo "Alignment Complete"; echo "Completed Paired Alignment "$(date) >> stdout.txt
 fi
