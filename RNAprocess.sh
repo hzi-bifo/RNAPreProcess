@@ -76,6 +76,10 @@ else
 			refIndex=$2
 			shift
 			;;
+		-n|--n)
+			align=$2
+			shift
+			;;
 		*)
 			echo; echo "$1 $2 is not an appropriate argument, please see usage instructions : "; usage; exit
 	esac
@@ -122,7 +126,6 @@ echo " 2 - Data PreProcessing: Initial Quality Metrics "
 #Setting up list of data files:
 #--------------------
 
-# TO DO: Clean this up - want to create list of files here, will later be used with STAR but need to do differently for both paired and single end data
 if $pairedEnd ;then
 	files1=$inoutdir/*1.fastq; set -- $files1; files2=$inoutdir/*2.fastq; set -- $files2
 else
@@ -131,6 +134,8 @@ fi
 
 # FastQC for Paired and Single End Data
 #--------------------
+
+# TO DO: Change so that it downloads gzip files
 
 if $fastqcAnalysis ;then
 	if [ ! -d $inoutdir/fastqcAnalysis ]; then mkdir $inoutdir/fastqcAnalysis; fi
@@ -191,45 +196,118 @@ fi
 # Alignment with STAR:
 #--------------------
 
+# TO DO: add gzip function to STAR, to work with zipped files
 #TO DO: add a naming system before here as it should work with both paired/single end data, make sure it aligns with proteomic data
-# TO DO: 30.04.2021 - need to merge file1 with file2 in tab deliminated manner for alignment
+# TO DO: remove the align option - just temporary for testing
 
-if $pairedEnd ;then
+if $align ;then
+	if $pairedEnd ;then
 
-	# Creating File List
-	echo "Generating list of files for mapping of multiple in one run "$(date) >> stdout.txt
+		# Creating File List
+		echo "Generating list of files for mapping of multiple in one run "$(date) >> stdout.txt
 
-	> $inoutdir/files1.txt; > $inoutdir/files2.txt
-	for i in $files1; do echo "$i" >> $inoutdir/files1.txt; done; for i in $files2; do echo "$i" >> $inoutdir/files2.txt; done
-	paste -d " " $inoutdir/files1.txt $inoutdir/files2.txt > $inoutdir/starfile.txt
-	echo "Complete" >> stdout.txt
+		> $inoutdir/files1.txt; > $inoutdir/files2.txt
+		for i in $files1; do echo "$i" >> $inoutdir/files1.txt; done; for i in $files2; do echo "$i" >> $inoutdir/files2.txt; done
+		paste -d " " $inoutdir/files1.txt $inoutdir/files2.txt > $inoutdir/starfile.txt
+		echo "Complete" >> stdout.txt
 
-	# Alignment
-	echo "STAR Alignment" >> stdout.txt
-	echo $refIndex
-	cat $inoutdir/starfile.txt | while read line; do
-		base=$(echo "${line%% *}"); starname=$(basename -s .fastq $base | cut -f1 -d"_")
-		echo $starname; echo $starname >> stdout.txt
-		STAR --runThreadN 4 --genomeDir $refIndex --readFilesIn $line --outFilterMultimapNmax 1 \
-			--outSAMtype BAM SortedByCoordinate --quantMode GeneCounts --sjdbGTFfile $refIndex/hg38.ensGene.gtf \
-			--clip5pNbases 13 --outFileNamePrefix $inoutdir/alignments/$starname #--genomeLoad LoadAndRemove 2>> stderr.txt
-		echo -e "$starname\talignment complete"; echo -e "$line\talignment complete"$(date) >> stdout.txt
-	done
-	echo "Alignment Complete"; echo "Completed Paired Alignment "$(date) >> stdout.txt
+		# Alignment
+		echo "STAR Alignment" >> stdout.txt
+		echo $refIndex
+		cat $inoutdir/starfile.txt | while read line; do
+			base=$(echo "${line%% *}"); starname=$(basename -s .fastq $base | cut -f1 -d"_")
+			echo $starname; echo $starname >> stdout.txt
+			STAR --runThreadN 4 --genomeDir $refIndex --readFilesIn $line --outFilterMultimapNmax 1 \
+				--outSAMtype BAM SortedByCoordinate --quantMode GeneCounts --sjdbGTFfile $refIndex/hg38.ensGene.gtf \
+				--clip5pNbases $trim --outFileNamePrefix $inoutdir/alignments/$starname"_" #--genomeLoad LoadAndRemove 2>> stderr.txt
+			echo -e "$starname\talignment complete"; echo -e "$line\talignment complete"$(date) >> stdout.txt
+		done
+		echo "Alignment Complete"; echo "Completed Paired Alignment "$(date) >> stdout.txt
+		rm -rf $inoutdir/files1.txt $inoutdir/files2.txt
+	fi
 fi
+
 # Note the fastq files are not in gzip format post accession step - need to zip them prior to this alignment step (use --readFilesCommand gunzip -c )
 # TO DO: Need a --outSAMattrRGline for corresponding read groups? (in the above STAR alignment command)
 
 # Read Counts
 #--------------------
 
-# TO DO: Add read counts, print to stdout.txt as well. 
+# TO DO: Add the gzip function (gzip -d ...) to fastq read counts, this will need to be added to accession as well
+# TO DO: Replace " " with "\t" in read_counts.txt file - gsub 
+# TO DO: How to make the renaming structure more univerisal - have user input what column in SRA metadata table is used for group
+
+echo " 4 - Calculating Read Statistics"; echo "Read Statistics" >> stdout.txt 
+
+bamFiles=$inoutdir/alignments/*.bam; set -- $bamFiles
+tabFiles=$inoutdir/alignments/*ReadsPerGene.out.tab; set -- $tabFiles
+
+if [ ! -d $inoutdir/read_counts ]; then mkdir $inoutdir/read_counts; fi
+
+
+# Renaming files by Group 
+
+# TO DO: Rename bam and tab files based on groups, no need to rename fastq files? 
+# TO DO: Uncomment the Read Counts and Indexing Sections
+# Python script for renaming
+# For loop over items in bam/tabFiles and apply renaming structure
+
+for i in $tabFiles; do python $SOFTWAREPATH/rename_group.py $i $metaFile; done
+
+# Read Counts:
+#if $pairedEnd ;then
+#	> $inoutdir/read_counts/fastq1_reads.txt; for line in $files1; do rcount1=$(cat $line | wc -l); echo $(basename $line) $(( rcount1 / 4 )) >> $inoutdir/read_counts/fastq1_reads.txt; done
+#	> $inoutdir/read_counts/fastq2_reads.txt; for line in $files2; do rcount2=$(cat $line | wc -l); echo $(basename $line) $(( rcount2 / 4 )) >> $inoutdir/read_counts/fastq2_reads.txt; done
+#fi
+
+# Aligned Read Counts:
+#> $inoutdir/read_counts/bam_reads.txt; for line in $bamFiles; do bamcount=$(samtools view $line | wc -l); echo $(basename $line) $bamcount >> $inoutdir/read_counts/bam_reads.txt; done
+
+# Exonic Reads Count:
+#> $inoutdir/read_counts/exonic_reads.txt; for line in $tabFiles; do tabcount=$(awk '{if ($1 ~ "ENSG") {sum += $4}} END {print sum}' $line); echo $(basename $line) $tabcount >> $inoutdir/read_counts/exonic_reads.txt; done
+#grep -v -e '^$'  $inoutdir/read_counts/exonic_reads.txt
+
+# Read Stats:
+#paste $inoutdir/read_counts/fastq1_reads.txt $inoutdir/read_counts/fastq2_reads.txt $inoutdir/read_counts/bam_reads.txt $inoutdir/read_counts/exonic_reads.txt > $inoutdir/read_counts/read_counts.txt
+
+#rm -rf $inoutdir/read_counts/fastq1_reads.txt $inoutdir/read_counts/fastq2_reads.txt $inoutdir/read_counts/bam_reads.txt $inoutdir/read_counts/exonic_reads.txt
+
+#cat $inoutdir/read_counts/exonic_reads.txt >> stdout.txt; echo "Read Count Stats - Complete"$(date) >> stdout.txt
+
+# Indexing
+#--------------------
+
+#echo "Indexing Bam Files" >> stdout.txt
+#for line in $bamFiles; do samtools index $line; done
+
+# Bigwig file creation
+#echo "Creation of Bigwig files" >> stdout.txt 
+#for line in $bamFiles; do bamCoverage -b $line -o "$line.bw" --normalizeUsingRPKM; done # bamCoverage command not found
+#echo "Complete" >> stdout.txt
 
 #--------------------
 # Normalization
 #--------------------
 
-echo
-echo " 4 - Inter and Intra Normalization "
+echo -e "\nNormalization"$(date) >> stdout.txt
 
-# Pull in R script here
+# Renaming tab files by group
+#--------------------
+
+# TO DO: How and where to rename the other files - may need to do in READ COUNTS
+
+
+# Target Files:
+#--------------------
+
+# TO DO: Delete or keep the tabfiles.txt file as it could be used for target_files.txt rather than making a new one
+
+if [ ! -d $inoutdir/normalization ]; then mkdir $inoutdir/normalization; fi; echo "Normalization Directory Created" >> stdout.txt
+
+> $inoutdir/normalization/target_file.txt
+echo $tabFiles >> $inoutdir/normalization/target_files.txt
+
+echo
+echo " 5 - Inter and Intra Normalization "
+
+#RScript $SOFTWAREPATH/normalization.r $inoutdir/normalization/target_files.txt $inoutdir/normalization/
