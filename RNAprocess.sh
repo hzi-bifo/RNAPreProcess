@@ -23,6 +23,8 @@ function usage () {
 	echo '-p : true if data is paired end otherwise set to false'
 	echo '-r : set to true if a reference genome index is required, otherwise false; designed for hg38 human reference genome'
 	echo '-t : trim number for alignment'
+	echo '-i : path to the reference genome index for alignment'
+	echo '-n : true if running alignment, otherwise set to false'
 	echo
 }
 
@@ -88,7 +90,7 @@ else
 fi
 
 #Log File:
-echo >> stdout.txt
+echo > stdout.txt
 echo "Initializing Pipeline... "$(date) >> stdout.txt
 echo >> stdout.txt
 
@@ -168,10 +170,11 @@ echo " 3 - Alignment "
 
 # Generating a Genome Reference Index: So have precreated and then add option to path
 #--------------------
+
 if $refGenomeIndex ; then
 	if [ ! -d $inoutdir/hg38 ]; then mkdir $inoutdir/hg38; echo "Generated Directory "$inoutdir"/hg38"; fi
 
-	echo ; echo "Generating Genome Index"; echo "Generating Reference Genome Index "$(date) >> stdout.txt
+	echo ; echo "Generating Genome Index"; echo -e "\nGenerating Reference Genome Index "$(date) >> stdout.txt
 	# Downloading Reference Genome
 	if [ ! -f $inoutdir/hg38/hg38.fa ]; then
 		wget https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz -P $inoutdir/hg38/
@@ -189,7 +192,7 @@ if $refGenomeIndex ; then
 
 	refIndex=$inoutdir/hg38
 
-	echo ; echo "Complete"; echo "Genome Index Created "$(date) >> stdout.txt
+	echo ; echo "Complete"; echo -e "\nGenome Index Created "$(date) >> stdout.txt
 
 fi
 
@@ -214,6 +217,8 @@ if $align ;then
 		# Alignment
 		echo "STAR Alignment" >> stdout.txt
 		echo $refIndex
+		if [ ! -d $inoutdir/alignments ]; then mkdir $inoutdir/alignments; echo "Generated Directory "$inoutdir"/alignments" >> stdout.txt; fi
+		
 		cat $inoutdir/starfile.txt | while read line; do
 			base=$(echo "${line%% *}"); starname=$(basename -s .fastq $base | cut -f1 -d"_")
 			echo $starname; echo $starname >> stdout.txt
@@ -227,6 +232,15 @@ if $align ;then
 	fi
 fi
 
+# Renaming files by Group 
+#--------------------
+
+# TO DO: Rename bam and tab files based on groups, no need to rename fastq files? 
+# TO DO: Uncomment the Read Counts and Indexing Sections
+# TO DO: How to make the renaming structure more univerisal - have user input what column in SRA metadata table is used for group (3rd arg)
+
+python $SOFTWAREPATH/rename_group.py $inoutdir/alignments/ $metaFile "7" # No need for 3rd arg at this time
+
 # Note the fastq files are not in gzip format post accession step - need to zip them prior to this alignment step (use --readFilesCommand gunzip -c )
 # TO DO: Need a --outSAMattrRGline for corresponding read groups? (in the above STAR alignment command)
 
@@ -235,7 +249,6 @@ fi
 
 # TO DO: Add the gzip function (gzip -d ...) to fastq read counts, this will need to be added to accession as well
 # TO DO: Replace " " with "\t" in read_counts.txt file - gsub 
-# TO DO: How to make the renaming structure more univerisal - have user input what column in SRA metadata table is used for group
 
 echo " 4 - Calculating Read Statistics"; echo "Read Statistics" >> stdout.txt 
 
@@ -244,46 +257,37 @@ tabFiles=$inoutdir/alignments/*ReadsPerGene.out.tab; set -- $tabFiles
 
 if [ ! -d $inoutdir/read_counts ]; then mkdir $inoutdir/read_counts; fi
 
-
-# Renaming files by Group 
-
-# TO DO: Rename bam and tab files based on groups, no need to rename fastq files? 
-# TO DO: Uncomment the Read Counts and Indexing Sections
-# Python script for renaming
-# For loop over items in bam/tabFiles and apply renaming structure
-
-for i in $tabFiles; do python $SOFTWAREPATH/rename_group.py $i $metaFile; done
-
 # Read Counts:
-#if $pairedEnd ;then
-#	> $inoutdir/read_counts/fastq1_reads.txt; for line in $files1; do rcount1=$(cat $line | wc -l); echo $(basename $line) $(( rcount1 / 4 )) >> $inoutdir/read_counts/fastq1_reads.txt; done
-#	> $inoutdir/read_counts/fastq2_reads.txt; for line in $files2; do rcount2=$(cat $line | wc -l); echo $(basename $line) $(( rcount2 / 4 )) >> $inoutdir/read_counts/fastq2_reads.txt; done
-#fi
+if $pairedEnd ;then
+	> $inoutdir/read_counts/fastq1_reads.txt; for line in $files1; do rcount1=$(cat $line | wc -l); echo $(basename $line) $(( rcount1 / 4 )) >> $inoutdir/read_counts/fastq1_reads.txt; done
+	> $inoutdir/read_counts/fastq2_reads.txt; for line in $files2; do rcount2=$(cat $line | wc -l); echo $(basename $line) $(( rcount2 / 4 )) >> $inoutdir/read_counts/fastq2_reads.txt; done
+fi
 
 # Aligned Read Counts:
-#> $inoutdir/read_counts/bam_reads.txt; for line in $bamFiles; do bamcount=$(samtools view $line | wc -l); echo $(basename $line) $bamcount >> $inoutdir/read_counts/bam_reads.txt; done
+> $inoutdir/read_counts/bam_reads.txt; for line in $bamFiles; do bamcount=$(samtools view $line | wc -l); echo $(basename $line) $bamcount >> $inoutdir/read_counts/bam_reads.txt; done
 
 # Exonic Reads Count:
-#> $inoutdir/read_counts/exonic_reads.txt; for line in $tabFiles; do tabcount=$(awk '{if ($1 ~ "ENSG") {sum += $4}} END {print sum}' $line); echo $(basename $line) $tabcount >> $inoutdir/read_counts/exonic_reads.txt; done
-#grep -v -e '^$'  $inoutdir/read_counts/exonic_reads.txt
+> $inoutdir/read_counts/exonic_reads.txt; for line in $tabFiles; do tabcount=$(awk '{if ($1 ~ "ENSG") {sum += $4}} END {print sum}' $line); echo $(basename $line) $tabcount >> $inoutdir/read_counts/exonic_reads.txt; done
+grep -v -e '^$'  $inoutdir/read_counts/exonic_reads.txt
 
 # Read Stats:
-#paste $inoutdir/read_counts/fastq1_reads.txt $inoutdir/read_counts/fastq2_reads.txt $inoutdir/read_counts/bam_reads.txt $inoutdir/read_counts/exonic_reads.txt > $inoutdir/read_counts/read_counts.txt
+paste $inoutdir/read_counts/fastq1_reads.txt $inoutdir/read_counts/fastq2_reads.txt $inoutdir/read_counts/bam_reads.txt $inoutdir/read_counts/exonic_reads.txt > $inoutdir/read_counts/read_counts.txt
 
 #rm -rf $inoutdir/read_counts/fastq1_reads.txt $inoutdir/read_counts/fastq2_reads.txt $inoutdir/read_counts/bam_reads.txt $inoutdir/read_counts/exonic_reads.txt
 
-#cat $inoutdir/read_counts/exonic_reads.txt >> stdout.txt; echo "Read Count Stats - Complete"$(date) >> stdout.txt
+cat $inoutdir/read_counts/exonic_reads.txt >> stdout.txt; echo -e "\nRead Count Stats - Complete"$(date) >> stdout.txt
 
 # Indexing
 #--------------------
 
-#echo "Indexing Bam Files" >> stdout.txt
-#for line in $bamFiles; do samtools index $line; done
+echo -e "\nIndexing Bam Files\n" >> stdout.txt
+for line in $bamFiles; do samtools index $line; done
+echo $inoutdir/alignments/*.bam.bai >> stdout.txt
 
 # Bigwig file creation
 #echo "Creation of Bigwig files" >> stdout.txt 
 #for line in $bamFiles; do bamCoverage -b $line -o "$line.bw" --normalizeUsingRPKM; done # bamCoverage command not found
-#echo "Complete" >> stdout.txt
+echo -e "\nComplete" >> stdout.txt
 
 #--------------------
 # Normalization
@@ -291,23 +295,29 @@ for i in $tabFiles; do python $SOFTWAREPATH/rename_group.py $i $metaFile; done
 
 echo -e "\nNormalization"$(date) >> stdout.txt
 
-# Renaming tab files by group
-#--------------------
-
-# TO DO: How and where to rename the other files - may need to do in READ COUNTS
-
-
 # Target Files:
 #--------------------
 
 # TO DO: Delete or keep the tabfiles.txt file as it could be used for target_files.txt rather than making a new one
 
-if [ ! -d $inoutdir/normalization ]; then mkdir $inoutdir/normalization; fi; echo "Normalization Directory Created" >> stdout.txt
+if [ ! -d $inoutdir/normalization ]; then mkdir $inoutdir/normalization; fi; echo -e "\nNormalization Directory Created" >> stdout.txt
 
 > $inoutdir/normalization/target_file.txt
-echo $tabFiles >> $inoutdir/normalization/target_files.txt
+echo -e "files\tgroup\tshort_name" >> $inoutdir/normalization/target_file.txt
+for i in $tabFiles; do group=$(basename -s .out $i | cut -f2 -d"_"); srr=$(basename -s .out $i | cut -f1 -d "_"); short_name=$srr"_"$group;
+	echo -e $i"\t"$group"\t"$short_name >> $inoutdir/normalization/target_file.txt; done
+# echo -e $tabFiles"\t"$(basename -s .out $tabfiles | cut -f2 -d"_")"\t"$(basename -s .fastq $base | cut -f1 -d"_")"_"$(basename -s .fastq $base | cut -f2 -d"_")  >> $inoutdir/normalization/target_files.txt
 
 echo
 echo " 5 - Inter and Intra Normalization "
 
-#RScript $SOFTWAREPATH/normalization.r $inoutdir/normalization/target_files.txt $inoutdir/normalization/
+# Normalization
+#--------------------
+
+# TO DO: Add a gene annotation file as the fourth argument
+
+baseName=$(basename $inoutdir)
+
+echo -e "\n" >> stdout.txt
+RScript $SOFTWAREPATH/normalization.r $inoutdir/alignments $inoutdir/normalization/ $geneLength $baseName >> stdout.txt
+
